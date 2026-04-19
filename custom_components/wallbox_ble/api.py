@@ -160,11 +160,6 @@ class WallboxBLEApiClient:
                     disconnected_callback=disconnected_callback,
                 )
                 LOGGER.debug("Connected!")
-                try:
-                    await self.client.pair()
-                    LOGGER.debug("Paired!")
-                except Exception as e:
-                    LOGGER.debug(f"Pairing note: {type(e).__name__}: {e}")
                 await self.client.start_notify(WallboxBLEApiConst.UART_TX_CHAR_UUID, callback_handler)
                 LOGGER.debug("Subscribed to notifications")
                 await disconnected_event.wait()
@@ -219,7 +214,9 @@ class WallboxBLEApiClient:
 
         self.clear_rx_queue()
         try:
-            await asyncio.wait_for(self.client.write_gatt_char(rx_char, frame, True), 2)
+            LOGGER.debug(f"Writing {len(frame)} bytes to {rx_char.uuid}")
+            await asyncio.wait_for(self.client.write_gatt_char(rx_char, frame, response=False), 5)
+            LOGGER.debug("Write successful")
         except Exception as e:
             LOGGER.error(f"Failed to write to Bluetooth {e=}")
             return False, None

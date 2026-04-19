@@ -69,7 +69,7 @@ class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             address = discovery_info.address
             if address in current_addresses or address in self._discovered_devices:
                 continue
-            if re.match("WB\d+", discovery_info.name):
+            if re.match(r"WB\d+", discovery_info.name):
                 self._discovered_devices[address] = discovery_info
 
         if not self._discovered_devices:
