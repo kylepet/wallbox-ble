@@ -38,6 +38,17 @@ class WallboxBLEDataUpdateCoordinator(DataUpdateCoordinator):
         self.status = ""
         self.status_code = 0
         self.available = False
+        # Power meter data from GET_POWER_BOOST_STATUS
+        self.grid_power_l1 = 0
+        self.grid_power_l2 = 0
+        self.grid_power_l3 = 0
+        self.grid_voltage_l1 = 0
+        self.grid_voltage_l2 = 0
+        self.grid_voltage_l3 = 0
+        self.grid_current_l1 = 0.0
+        self.grid_current_l2 = 0.0
+        self.grid_current_l3 = 0.0
+        self.grid_energy = 0.0
 
     @classmethod
     async def create(cls, hass, address):
@@ -69,9 +80,25 @@ class WallboxBLEDataUpdateCoordinator(DataUpdateCoordinator):
             self.charge_current = data.get("cur", 6)
             self.status = WallboxBLEApiConst.STATUS_CODES[self.status_code]
             self.available = True
-            return data
         else:
             self.available = False
+            return {}
+
+        ok_pbs, pbs = await self.wb.async_get_power_boost_status()
+        if ok_pbs and pbs:
+            LOGGER.debug(f"Power boost status: {pbs}")
+            self.grid_power_l1 = pbs.get("p1", 0)
+            self.grid_power_l2 = pbs.get("p2", 0)
+            self.grid_power_l3 = pbs.get("p3", 0)
+            self.grid_voltage_l1 = pbs.get("v1", 0)
+            self.grid_voltage_l2 = pbs.get("v2", 0)
+            self.grid_voltage_l3 = pbs.get("v3", 0)
+            self.grid_current_l1 = pbs.get("c1", 0) / 10.0
+            self.grid_current_l2 = pbs.get("c2", 0) / 10.0
+            self.grid_current_l3 = pbs.get("c3", 0) / 10.0
+            self.grid_energy = pbs.get("e", 0) / 1000.0
+
+        return data
 
     async def async_set_parameter(self, parameter, value):
         ok, _ = await self.wb.request(parameter, value)

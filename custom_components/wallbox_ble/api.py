@@ -268,6 +268,11 @@ class WallboxBLEApiClient:
         ok, _ = await self.request(WallboxBLEApiConst.LOCK, int(locked))
         return ok
 
+    async def async_get_power_boost_status(self):
+        """Get power meter data from the power boost status."""
+        ok, data = await self.request(WallboxBLEApiConst.GET_POWER_BOOST_STATUS)
+        return ok, data
+
     async def async_get_max_charge_current(self):
         """Get data from the API."""
         ok, data = await self.request(WallboxBLEApiConst.GET_MAX_AVAILABLE_CURRENT)
