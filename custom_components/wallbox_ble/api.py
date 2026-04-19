@@ -8,13 +8,6 @@ import contextlib
 
 from bleak import BleakClient
 from bleak_retry_connector import establish_connection
-from bleak.exc import BleakDBusError
-
-from dbus_fast.aio import MessageBus
-from dbus_fast.auth import AuthExternal
-from dbus_fast.constants import BusType
-from dbus_fast.message import Message
-from dbus_fast.service import ServiceInterface, method
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
 
@@ -128,33 +121,7 @@ class WallboxBLEApiConst:
     ]
 
 
-class AgentInterface(ServiceInterface):
-    def __init__(self, name):
-        super().__init__(name)
-
-    @method()
-    def RequestAuthorization(self, device: 'o'):
-        LOGGER.debug(f"Initial pairing! Got RequestAuthorization for {device}")
-        return
-
-
 class WallboxBLEApiClient:
-
-    async def pair_client(self):
-        bus = await MessageBus(bus_type=BusType.SYSTEM, negotiate_unix_fd=True).connect()
-
-        interface = AgentInterface('org.bluez.Agent1')
-        bus.export('/wallbox/agent', interface)
-
-        introspection = await bus.introspect('org.bluez', '/org/bluez')
-        obj = bus.get_proxy_object('org.bluez', '/org/bluez', introspection)
-        agent_manager = obj.get_interface('org.bluez.AgentManager1')
-
-        await agent_manager.call_register_agent("/wallbox/agent", "NoInputNoOutput")
-
-        await self.client.pair()
-
-        bus.disconnect()
 
     async def run_ble_client(self):
         async def callback_handler(sender, data):
@@ -173,15 +140,23 @@ class WallboxBLEApiClient:
                 device = async_ble_device_from_address(self.hass, self.address, connectable=True)
                 if not device:
                     raise Exception("No device found")
-                async with BleakClient(device, disconnected_callback=disconnected_callback) as self.client:
-                    LOGGER.debug("Connected!")
-                    try:
-                        await self.client.pair()
-                    except NotImplementedError:
-                        # Ugly hack until we wait for HA pairing support to land
-                        await self.client._backend._client.bluetooth_device_pair(self.client._backend._address_as_int)
+                self.client = await establish_connection(
+                    BleakClient,
+                    device,
+                    self.address,
+                    disconnected_callback=disconnected_callback,
+                )
+                LOGGER.debug("Connected!")
+                try:
                     await self.client.start_notify(WallboxBLEApiConst.UART_TX_CHAR_UUID, callback_handler)
-                    await disconnected_event.wait()
+                except Exception as e:
+                    LOGGER.debug(f"Failed to start notify: {e}")
+                    await self.client.disconnect()
+                    self.client = None
+                    await asyncio.sleep(1.0)
+                    continue
+                await disconnected_event.wait()
+                await self.client.disconnect()
             except Exception as e:
                 LOGGER.debug(f"Error: {type(e)}, {e}")
                 await asyncio.sleep(1.0)
