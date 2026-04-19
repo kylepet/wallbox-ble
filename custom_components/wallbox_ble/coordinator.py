@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from .api import WallboxBLEApiClient, WallboxBLEApiConst
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, DEFAULT_UPDATE_INTERVAL
 
 
 class WallboxBLEDataUpdateCoordinator(DataUpdateCoordinator):
@@ -23,13 +23,14 @@ class WallboxBLEDataUpdateCoordinator(DataUpdateCoordinator):
     def __init__(
         self,
         hass: HomeAssistant,
+        update_interval: int = DEFAULT_UPDATE_INTERVAL,
     ) -> None:
         """Initialize."""
         super().__init__(
             hass=hass,
             logger=LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=10),
+            update_interval=timedelta(seconds=update_interval),
         )
         self.hass = hass
         self.locked = False
@@ -51,8 +52,8 @@ class WallboxBLEDataUpdateCoordinator(DataUpdateCoordinator):
         self.grid_energy = 0.0
 
     @classmethod
-    async def create(cls, hass, address, passcode=""):
-        self = WallboxBLEDataUpdateCoordinator(hass)
+    async def create(cls, hass, address, passcode="", update_interval=DEFAULT_UPDATE_INTERVAL):
+        self = WallboxBLEDataUpdateCoordinator(hass, update_interval=update_interval)
         self.wb = await WallboxBLEApiClient.create(hass, address, passcode)
         return self
 

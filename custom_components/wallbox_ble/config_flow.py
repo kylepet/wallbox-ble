@@ -15,7 +15,7 @@ from homeassistant.components.bluetooth import (
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN, LOGGER, CONF_PASSCODE
+from .const import DOMAIN, LOGGER, CONF_PASSCODE, CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL
 
 
 class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
@@ -88,19 +88,28 @@ class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle passcode input."""
         if user_input is not None:
-            return await self._async_get_or_create_entry(user_input[CONF_PASSCODE])
+            return await self._async_get_or_create_entry(
+                passcode=user_input[CONF_PASSCODE],
+                update_interval=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+            )
 
         return self.async_show_form(
             step_id="passcode",
             data_schema=vol.Schema({
                 vol.Required(CONF_PASSCODE): str,
+                vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
+                    int, vol.Range(min=2, max=300)
+                ),
             }),
             description_placeholders=self.context.get("title_placeholders", {}),
         )
 
-    async def _async_get_or_create_entry(self, passcode: str = ""):
+    async def _async_get_or_create_entry(self, passcode: str = "", update_interval: int = DEFAULT_UPDATE_INTERVAL):
         device = async_ble_device_from_address(self.hass, self.unique_id, connectable=True)
         return self.async_create_entry(
             title=device.name,
-            data={CONF_PASSCODE: passcode},
+            data={
+                CONF_PASSCODE: passcode,
+                CONF_UPDATE_INTERVAL: update_interval,
+            },
         )

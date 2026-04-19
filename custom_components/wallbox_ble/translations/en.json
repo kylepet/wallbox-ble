@@ -19,7 +19,8 @@
             },
             "passcode": {
                 "data": {
-                    "passcode": "Bluetooth passcode"
+                    "passcode": "Bluetooth passcode",
+                    "update_interval": "Update interval (seconds)"
                 },
                 "description": "Enter the 6-digit Bluetooth passcode from the Wallbox app"
             }
