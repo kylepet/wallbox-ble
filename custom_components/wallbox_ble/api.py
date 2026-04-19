@@ -160,6 +160,11 @@ class WallboxBLEApiClient:
                     disconnected_callback=disconnected_callback,
                 )
                 LOGGER.debug("Connected!")
+                try:
+                    await self.client.pair()
+                    LOGGER.debug("Paired!")
+                except Exception as e:
+                    LOGGER.debug(f"Pairing note: {type(e).__name__}: {e}")
                 await self.client.start_notify(WallboxBLEApiConst.UART_TX_CHAR_UUID, callback_handler)
                 LOGGER.debug("Subscribed to notifications")
                 await disconnected_event.wait()
