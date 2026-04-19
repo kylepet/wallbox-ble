@@ -51,9 +51,9 @@ class WallboxBLEDataUpdateCoordinator(DataUpdateCoordinator):
         self.grid_energy = 0.0
 
     @classmethod
-    async def create(cls, hass, address):
+    async def create(cls, hass, address, passcode=""):
         self = WallboxBLEDataUpdateCoordinator(hass)
-        self.wb = await WallboxBLEApiClient.create(hass, address)
+        self.wb = await WallboxBLEApiClient.create(hass, address, passcode)
         return self
 
     async def async_refresh_later(self, delay):

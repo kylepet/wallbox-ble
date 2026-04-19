@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import voluptuous as vol
 import re
+from typing import Any
 
 from homeassistant import config_entries
 from homeassistant.components import onboarding
@@ -12,13 +13,13 @@ from homeassistant.components.bluetooth import (
     async_discovered_service_info,
 )
 from homeassistant.const import CONF_ADDRESS
-from homeassistant.helpers import selector
+from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, CONF_PASSCODE
 
 
 class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
-    """Config flow for Blueprint."""
+    """Config flow for Wallbox BLE."""
 
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
@@ -36,12 +37,12 @@ class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         title = discovery_info.name
         self.context["title_placeholders"] = {"name": title}
 
-        return await self.async_step_bluetooth_confirm()
+        return await self.async_step_passcode()
 
     async def async_step_bluetooth_confirm(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Confirm discovery."""
         if user_input is not None or not onboarding.async_is_onboarded(self.hass):
-            return await self._async_get_or_create_entry()
+            return await self.async_step_passcode()
 
         self._set_confirm_only()
         return self.async_show_form(
@@ -52,7 +53,7 @@ class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self,
         user_input: dict | None = None,
-    ) -> config_entries.FlowResult:
+    ) -> FlowResult:
         """Handle a flow initialized by the user."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
@@ -62,7 +63,7 @@ class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             self.context["title_placeholders"] = {"name": discovery.name}
 
-            return await self._async_get_or_create_entry()
+            return await self.async_step_passcode()
 
         current_addresses = self._async_current_ids()
         for discovery_info in async_discovered_service_info(self.hass, connectable=True):
@@ -81,6 +82,25 @@ class BlueprintFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required(CONF_ADDRESS): vol.In(titles)}),
         )
 
-    async def _async_get_or_create_entry(self):
+    async def async_step_passcode(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> FlowResult:
+        """Handle passcode input."""
+        if user_input is not None:
+            return await self._async_get_or_create_entry(user_input[CONF_PASSCODE])
+
+        return self.async_show_form(
+            step_id="passcode",
+            data_schema=vol.Schema({
+                vol.Required(CONF_PASSCODE): str,
+            }),
+            description_placeholders=self.context.get("title_placeholders", {}),
+        )
+
+    async def _async_get_or_create_entry(self, passcode: str = ""):
         device = async_ble_device_from_address(self.hass, self.unique_id, connectable=True)
-        return self.async_create_entry(title=device.name, data={})
+        return self.async_create_entry(
+            title=device.name,
+            data={CONF_PASSCODE: passcode},
+        )

@@ -16,6 +16,12 @@
                     "address": "Device"
                 },
                 "description": "Choose a device to setup"
+            },
+            "passcode": {
+                "data": {
+                    "passcode": "Bluetooth passcode"
+                },
+                "description": "Enter the 6-digit Bluetooth passcode from the Wallbox app"
             }
         }
     }

@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import WallboxBLEApiClient
-from .const import DOMAIN
+from .const import DOMAIN, CONF_PASSCODE
 from .coordinator import WallboxBLEDataUpdateCoordinator
 
 PLATFORMS: list[Platform] = [
@@ -24,6 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator = await WallboxBLEDataUpdateCoordinator.create(
         hass=hass,
         address=entry.unique_id,
+        passcode=entry.data.get(CONF_PASSCODE, ""),
     )
     # https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
     await coordinator.async_config_entry_first_refresh()

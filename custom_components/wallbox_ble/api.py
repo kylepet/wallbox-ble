@@ -8,9 +8,46 @@ import json
 from bleak import BleakClient
 from bleak_retry_connector import establish_connection
 
+from dbus_fast.aio import MessageBus
+from dbus_fast.constants import BusType
+from dbus_fast.service import ServiceInterface, method, signal
+
 from homeassistant.components.bluetooth import async_ble_device_from_address
 
 from .const import LOGGER
+
+
+class WallboxPairingAgent(ServiceInterface):
+    """BlueZ pairing agent that provides a passkey."""
+
+    def __init__(self, passkey: int):
+        super().__init__("org.bluez.Agent1")
+        self._passkey = passkey
+
+    @method()
+    def RequestPasskey(self, device: "o") -> "u":
+        LOGGER.debug(f"Pairing: providing passkey for {device}")
+        return self._passkey
+
+    @method()
+    def RequestConfirmation(self, device: "o", passkey: "u"):
+        LOGGER.debug(f"Pairing: confirming passkey {passkey} for {device}")
+        return
+
+    @method()
+    def RequestAuthorization(self, device: "o"):
+        LOGGER.debug(f"Pairing: authorizing {device}")
+        return
+
+    @method()
+    def Release(self):
+        LOGGER.debug("Pairing agent released")
+        return
+
+    @method()
+    def Cancel(self):
+        LOGGER.debug("Pairing cancelled")
+        return
 
 
 class WallboxBLEApiConst:
@@ -122,17 +159,53 @@ class WallboxBLEApiConst:
 
 class WallboxBLEApiClient:
 
-    def __init__(self, hass, address):
+    def __init__(self, hass, address, passcode=""):
         self.hass = hass
         self.address = address
+        self.passcode = passcode
         self.client = None
         self.rx_queue = asyncio.Queue()
+        self._paired = False
 
     @classmethod
-    async def create(cls, hass, address):
-        self = cls(hass, address)
+    async def create(cls, hass, address, passcode=""):
+        self = cls(hass, address, passcode)
         self.client_task = asyncio.create_task(self.run_ble_client())
         return self
+
+    async def _pair_with_passkey(self):
+        """Pair using dbus_fast with a passkey agent."""
+        if self._paired or not self.passcode:
+            return
+
+        passkey = int(self.passcode)
+        LOGGER.debug(f"Registering pairing agent with passkey")
+
+        try:
+            bus = await MessageBus(bus_type=BusType.SYSTEM, negotiate_unix_fd=True).connect()
+
+            agent = WallboxPairingAgent(passkey)
+            bus.export("/wallbox/agent", agent)
+
+            introspection = await bus.introspect("org.bluez", "/org/bluez")
+            obj = bus.get_proxy_object("org.bluez", "/org/bluez", introspection)
+            agent_manager = obj.get_interface("org.bluez.AgentManager1")
+
+            await agent_manager.call_register_agent("/wallbox/agent", "KeyboardDisplay")
+
+            LOGGER.debug("Pairing agent registered, initiating pairing...")
+            await self.client.pair()
+            LOGGER.debug("Pairing successful!")
+            self._paired = True
+
+            await agent_manager.call_unregister_agent("/wallbox/agent")
+            bus.disconnect()
+        except Exception as e:
+            LOGGER.debug(f"Pairing: {type(e).__name__}: {e}")
+            try:
+                bus.disconnect()
+            except Exception:
+                pass
 
     async def run_ble_client(self):
         async def callback_handler(sender, data):
@@ -160,6 +233,7 @@ class WallboxBLEApiClient:
                     disconnected_callback=disconnected_callback,
                 )
                 LOGGER.debug("Connected!")
+                await self._pair_with_passkey()
                 await self.client.start_notify(WallboxBLEApiConst.UART_TX_CHAR_UUID, callback_handler)
                 LOGGER.debug("Subscribed to notifications")
                 await disconnected_event.wait()
