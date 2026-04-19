@@ -4,7 +4,6 @@ from __future__ import annotations
 import random
 import asyncio
 import json
-import contextlib
 
 from bleak import BleakClient
 from bleak_retry_connector import establish_connection
@@ -123,6 +122,18 @@ class WallboxBLEApiConst:
 
 class WallboxBLEApiClient:
 
+    def __init__(self, hass, address):
+        self.hass = hass
+        self.address = address
+        self.client = None
+        self.rx_queue = asyncio.Queue()
+
+    @classmethod
+    async def create(cls, hass, address):
+        self = cls(hass, address)
+        self.client_task = asyncio.create_task(self.run_ble_client())
+        return self
+
     async def run_ble_client(self):
         async def callback_handler(sender, data):
             await self.rx_queue.put(data)
@@ -139,7 +150,9 @@ class WallboxBLEApiClient:
             try:
                 device = async_ble_device_from_address(self.hass, self.address, connectable=True)
                 if not device:
-                    raise Exception("No device found")
+                    LOGGER.debug("Device not found, retrying...")
+                    await asyncio.sleep(5.0)
+                    continue
                 self.client = await establish_connection(
                     BleakClient,
                     device,
@@ -147,38 +160,27 @@ class WallboxBLEApiClient:
                     disconnected_callback=disconnected_callback,
                 )
                 LOGGER.debug("Connected!")
-                try:
-                    await self.client.start_notify(WallboxBLEApiConst.UART_TX_CHAR_UUID, callback_handler)
-                except Exception as e:
-                    LOGGER.debug(f"Failed to start notify: {e}")
-                    await self.client.disconnect()
-                    self.client = None
-                    await asyncio.sleep(1.0)
-                    continue
+                await self.client.start_notify(WallboxBLEApiConst.UART_TX_CHAR_UUID, callback_handler)
+                LOGGER.debug("Subscribed to notifications")
                 await disconnected_event.wait()
-                await self.client.disconnect()
             except Exception as e:
-                LOGGER.debug(f"Error: {type(e)}, {e}")
-                await asyncio.sleep(1.0)
+                LOGGER.debug(f"Error: {type(e).__name__}: {e}")
 
+            if self.client:
+                try:
+                    await self.client.disconnect()
+                except Exception:
+                    pass
             self.client = None
             disconnected_event.clear()
+            await asyncio.sleep(1.0)
 
-    async def connection_established(self):
-        while True:
-            if self.client and self.client.is_connected:
-                return
-            asyncio.sleep(0.1)
+    @property
+    def ready(self):
+        return self.client and self.client.is_connected
 
-    @classmethod
-    async def create(cls, hass, address):
-        self = WallboxBLEApiClient()
-        self.client = None
+    def clear_rx_queue(self):
         self.rx_queue = asyncio.Queue()
-        self.hass = hass
-        self.address = address
-        self.client_task = asyncio.create_task(self.run_ble_client())
-        return self
 
     async def get_parsed_response(self, request_id):
         data = bytearray()
@@ -191,15 +193,8 @@ class WallboxBLEApiClient:
                     return parsed_data.get("r")
                 else:
                     data = bytearray()
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
-
-    def clear_rx_queue(self):
-        self.rx_queue = asyncio.Queue()
-
-    @property
-    def ready(self):
-        return self.client and self.client.is_connected
 
     async def request(self, method, parameter=None):
         if not self.ready:
@@ -213,20 +208,19 @@ class WallboxBLEApiClient:
 
         payload = {"met": method, "par": parameter, "id": request_id}
 
-        data = json.dumps(payload, separators=[",", ":"])
-        data = bytes(data, "utf8")
-        data = b"EaE" + bytes([len(data)]) + data
-        data = data + bytes([sum(c for c in data) % 256])
+        data = json.dumps(payload, separators=(",", ":")).encode("utf8")
+        frame = b"EaE" + bytes([len(data)]) + data
+        frame = frame + bytes([sum(c for c in frame) % 256])
 
         self.clear_rx_queue()
         try:
-            await asyncio.wait_for(self.client.write_gatt_char(rx_char, data, True), 2)
+            await asyncio.wait_for(self.client.write_gatt_char(rx_char, frame, True), 2)
         except Exception as e:
             LOGGER.error(f"Failed to write to Bluetooth {e=}")
             return False, None
 
         try:
-            response = await asyncio.wait_for(self.get_parsed_response(request_id), 2)
+            response = await asyncio.wait_for(self.get_parsed_response(request_id), 5)
             LOGGER.debug("Got response!")
             return True, response
         except asyncio.TimeoutError:
@@ -235,25 +229,22 @@ class WallboxBLEApiClient:
 
     async def async_get_data(self):
         """Get data from the API."""
-        ok, data = await self.request(WallboxBLEApiConst.GET_STATUS)
-        return ok, data
+        return await self.request(WallboxBLEApiConst.GET_STATUS)
 
     async def async_set_locked(self, locked):
-        """Get data from the API."""
+        """Set lock state."""
         ok, _ = await self.request(WallboxBLEApiConst.LOCK, int(locked))
         return ok
 
     async def async_get_power_boost_status(self):
         """Get power meter data from the power boost status."""
-        ok, data = await self.request(WallboxBLEApiConst.GET_POWER_BOOST_STATUS)
-        return ok, data
+        return await self.request(WallboxBLEApiConst.GET_POWER_BOOST_STATUS)
 
     async def async_get_max_charge_current(self):
-        """Get data from the API."""
-        ok, data = await self.request(WallboxBLEApiConst.GET_MAX_AVAILABLE_CURRENT)
-        return ok, data
+        """Get max available current."""
+        return await self.request(WallboxBLEApiConst.GET_MAX_AVAILABLE_CURRENT)
 
     async def async_set_charge_current(self, current):
-        """Get data from the API."""
+        """Set max charging current."""
         ok, _ = await self.request(WallboxBLEApiConst.SET_MAX_CHARGING_CURRENT, current)
         return ok
